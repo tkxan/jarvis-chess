@@ -1,0 +1,466 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>JARVIS Cyber Chess Safari v2</title>
+<style>
+:root{--bg:#04090d;--panel:#07151d;--line:#183f4b;--cyan:#26e1f4;--red:#ff566f;--text:#edf8fb;--muted:#8fa9b4;--sq1:#365e71;--sq2:#0f2c38}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}body{margin:0;background:radial-gradient(circle at top,#0c202b,#040a0f 52%,#020507);color:var(--text);font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+.app{max-width:760px;margin:auto;padding:6px 6px calc(10px + env(safe-area-inset-bottom))}
+.card{background:linear-gradient(180deg,#0a1a23,#061017);border:1px solid var(--line);border-radius:11px}
+.header{display:flex;align-items:center;justify-content:space-between;padding:7px 9px;margin-bottom:5px}.brand{font-weight:950;font-size:12px}.state{font-size:7px;color:#92efc5;border:1px solid #2b604d;border-radius:999px;padding:3px 7px}
+.players{display:grid;grid-template-columns:1fr 1fr;gap:5px}.player{padding:7px}.player.you{border-color:#248aa0}.player.ai{border-color:#7c3544}.name{font-size:9px;font-weight:950}.meta{font-size:7px;color:var(--muted)}.turn{font-size:7px;font-weight:900;color:#dff8fb}
+.boardShell{margin-top:5px;padding:3px;border:1px solid var(--cyan);border-radius:12px;background:#06131a}.board{display:grid;grid-template-columns:repeat(8,1fr);overflow:hidden;border-radius:8px;touch-action:manipulation}
+.sq{position:relative;aspect-ratio:1/1;border:0;padding:0;margin:0;display:flex;align-items:center;justify-content:center;touch-action:manipulation;-webkit-user-select:none;user-select:none;cursor:pointer}.sq.light{background:var(--sq1)}.sq.dark{background:var(--sq2)}.piece{width:90%;height:90%;pointer-events:none;z-index:2;filter:drop-shadow(0 2px 2px rgba(0,0,0,.72))}
+.sq.selected{box-shadow:inset 0 0 0 4px var(--cyan),0 0 16px rgba(38,225,244,.45);z-index:5}.sq.last{box-shadow:inset 0 0 0 100px rgba(111,232,172,.14)}.dot{position:absolute;width:18%;height:18%;border-radius:50%;background:#72efffaa;border:1px solid #d7fcff;z-index:4}.ring{position:absolute;inset:7%;border:4px solid #ff7187aa;border-radius:50%;z-index:4}.coord{position:absolute;font-size:7px;font-weight:900;color:#c4d5dc;z-index:5}.rank{left:2px;top:1px}.file{right:2px;bottom:1px}.flipped{transform:rotate(180deg)}.flipped .sq>*{transform:rotate(180deg)}
+.inputBar{display:flex;gap:5px;margin-top:5px}.inputReadout{flex:1;padding:6px 8px;font-size:7px;color:#b9ccd4}.inputReadout.ok{color:#8ff0c2;border-color:#2c6c52}.inputReadout.bad{color:#ff9aac;border-color:#7c3340}.testBtn{width:92px;border-radius:9px;border:1px solid #2d6572;background:#081820;color:#73eaf7;font-size:7px;font-weight:900}
+.tutor{margin-top:5px;padding:7px}.panels{display:grid;grid-template-columns:1fr 1fr;gap:5px}.panel{background:#081820;border:1px solid #174757;border-radius:8px;padding:7px;min-height:100px}.panel.a{border-color:#17798c}.panel.b{border-color:#783742}.pt{font-size:7px;font-weight:950;margin-bottom:4px}.a .pt{color:var(--cyan)}.b .pt{color:#ff8fa0}.big{font-size:8.5px;line-height:1.35}.detail{font-size:7.2px;color:#a7bdc6;line-height:1.3;margin-top:5px}.cursor{display:inline-block;width:4px;height:9px;background:currentColor;margin-left:2px;animation:blink .5s steps(1) infinite}.cursor[hidden]{display:none}@keyframes blink{50%{opacity:0}}
+.controls{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin-top:5px}.btn{min-height:33px;border-radius:8px;background:#081720;border:1px solid #294b56;color:#e3f0f4;font-size:8px;font-weight:900}.btn.primary{border-color:var(--cyan);color:#58e7f5}.status{text-align:center;font-size:8px;color:#9bb2bd;margin-top:4px;min-height:12px}
+@media(max-width:380px){.panel{min-height:94px;padding:6px}.big{font-size:7.8px}.detail{font-size:6.7px}.btn{min-height:31px}}
+</style></head><body>
+<script>
+class MiniChess{
+  constructor(){this.reset()}
+  reset(){
+    this.board={};this.turn='w';this.history=[];this.ep=null;this.castle={wK:true,wQ:true,bK:true,bQ:true};this.full=1;
+    const F='abcdefgh',back='rnbqkbnr';
+    for(let i=0;i<8;i++){this.board[F[i]+'1']='w'+back[i];this.board[F[i]+'2']='wp';this.board[F[i]+'7']='bp';this.board[F[i]+'8']='b'+back[i]}
+  }
+  clone(){const c=new MiniChess();c.board=JSON.parse(JSON.stringify(this.board));c.turn=this.turn;c.history=JSON.parse(JSON.stringify(this.history));c.ep=this.ep;c.castle={...this.castle};c.full=this.full;return c}
+  xy(s){return['abcdefgh'.indexOf(s[0]),+s[1]-1]}
+  sq(x,y){return x>=0&&x<8&&y>=0&&y<8?'abcdefgh'[x]+(y+1):null}
+  p(s){return this.board[s]||null}
+  color(p){return p?p[0]:null}
+  type(p){return p?p[1]:null}
+  king(side){for(const s in this.board)if(this.board[s]===side+'k')return s;return null}
+  pseudo(from,attack=false){
+    const p=this.p(from);if(!p)return[];const c=p[0],t=p[1],[x,y]=this.xy(from),out=[];
+    const add=(a,b)=>{const s=this.sq(a,b);if(s&&this.color(this.p(s))!==c)out.push(s)};
+    if(t==='p'){
+      const d=c==='w'?1:-1,start=c==='w'?1:6;
+      if(attack){for(const dx of[-1,1]){const s=this.sq(x+dx,y+d);if(s)out.push(s)}return out}
+      const one=this.sq(x,y+d);
+      if(one&&!this.p(one)){out.push(one);const two=this.sq(x,y+2*d);if(y===start&&two&&!this.p(two))out.push(two)}
+      for(const dx of[-1,1]){const s=this.sq(x+dx,y+d);if(s&&((this.p(s)&&this.color(this.p(s))!==c)||s===this.ep))out.push(s)}
+    } else if(t==='n'){
+      for(const [a,b] of [[1,2],[2,1],[-1,2],[-2,1],[1,-2],[2,-1],[-1,-2],[-2,-1]])add(x+a,y+b)
+    } else if(t==='k'){
+      for(let a=-1;a<=1;a++)for(let b=-1;b<=1;b++)if(a||b)add(x+a,y+b);
+      if(!attack){
+        const r=c==='w'?'1':'8',opp=c==='w'?'b':'w';
+        if(from==='e'+r&&!this.inCheck(c)){
+          if(this.castle[c+'K']&&!this.p('f'+r)&&!this.p('g'+r)&&this.p('h'+r)===c+'r'&&!this.attacked('f'+r,opp)&&!this.attacked('g'+r,opp))out.push('g'+r);
+          if(this.castle[c+'Q']&&!this.p('d'+r)&&!this.p('c'+r)&&!this.p('b'+r)&&this.p('a'+r)===c+'r'&&!this.attacked('d'+r,opp)&&!this.attacked('c'+r,opp))out.push('c'+r);
+        }
+      }
+    } else {
+      let dirs=[];if(t==='b'||t==='q')dirs.push([1,1],[1,-1],[-1,1],[-1,-1]);if(t==='r'||t==='q')dirs.push([1,0],[-1,0],[0,1],[0,-1]);
+      for(const [dx,dy] of dirs){let a=x+dx,b=y+dy;while(this.sq(a,b)){const s=this.sq(a,b),q=this.p(s);if(!q)out.push(s);else{if(this.color(q)!==c)out.push(s);break}a+=dx;b+=dy}}
+    }
+    return out
+  }
+  attacked(sq,by){for(const f in this.board)if(this.color(this.board[f])===by&&this.pseudo(f,true).includes(sq))return true;return false}
+  inCheck(side){const k=this.king(side);return k?this.attacked(k,side==='w'?'b':'w'):false}
+  simulate(from,to){
+    const c=this.clone(),p=c.p(from),side=p[0],t=p[1];
+    if(t==='p'&&to===c.ep&&!c.p(to)){const [x,y]=c.xy(to);delete c.board[c.sq(x,y+(side==='w'?-1:1))]}
+    c.board[to]=p;delete c.board[from];
+    if(t==='p'&&(to[1]==='8'||to[1]==='1'))c.board[to]=side+'q';
+    if(t==='k'&&Math.abs('abcdefgh'.indexOf(to[0])-'abcdefgh'.indexOf(from[0]))===2){
+      const r=from[1];if(to[0]==='g'){c.board['f'+r]=c.board['h'+r];delete c.board['h'+r]}else{c.board['d'+r]=c.board['a'+r];delete c.board['a'+r]}
+    }
+    return c
+  }
+  legal(from){
+    const p=this.p(from);if(!p||p[0]!==this.turn)return[];
+    return this.pseudo(from,false).filter(to=>!this.simulate(from,to).inCheck(this.turn))
+  }
+  all(side=this.turn){
+    const old=this.turn;this.turn=side;const out=[];for(const f in this.board)if(this.color(this.board[f])===side)for(const t of this.legal(f))out.push([f,t]);this.turn=old;return out
+  }
+  move(from,to){
+    if(!this.legal(from).includes(to))return null;
+    const snap={board:JSON.parse(JSON.stringify(this.board)),turn:this.turn,ep:this.ep,castle:{...this.castle},full:this.full};
+    this.history.push(snap);
+    const p=this.p(from),side=p[0],t=p[1],capt=this.p(to);
+    if(t==='p'&&to===this.ep&&!capt){const [x,y]=this.xy(to);delete this.board[this.sq(x,y+(side==='w'?-1:1))]}
+    if(t==='k'){this.castle[side+'K']=false;this.castle[side+'Q']=false}
+    if(from==='a1'||to==='a1')this.castle.wQ=false;if(from==='h1'||to==='h1')this.castle.wK=false;
+    if(from==='a8'||to==='a8')this.castle.bQ=false;if(from==='h8'||to==='h8')this.castle.bK=false;
+    this.board[to]=p;delete this.board[from];
+    if(t==='p'&&(to[1]==='8'||to[1]==='1'))this.board[to]=side+'q';
+    if(t==='k'&&Math.abs('abcdefgh'.indexOf(to[0])-'abcdefgh'.indexOf(from[0]))===2){
+      const r=from[1];if(to[0]==='g'){this.board['f'+r]=this.board['h'+r];delete this.board['h'+r]}else{this.board['d'+r]=this.board['a'+r];delete this.board['a'+r]}
+    }
+    this.ep=null;if(t==='p'&&Math.abs(+to[1]-+from[1])===2){const [x,y]=this.xy(from);this.ep=this.sq(x,y+(side==='w'?1:-1))}
+    this.turn=side==='w'?'b':'w';if(side==='b')this.full++;
+    return {from,to,piece:t,color:side,captured:capt?capt[1]:null}
+  }
+  undo(){const s=this.history.pop();if(!s)return false;this.board=s.board;this.turn=s.turn;this.ep=s.ep;this.castle=s.castle;this.full=s.full;return true}
+  gameOver(){return this.all(this.turn).length===0}
+  mate(){return this.gameOver()&&this.inCheck(this.turn)}
+}
+</script>
+<div class="app">
+<div class="card header"><div class="brand">JARVIS // CYBER CHESS SAFARI v2</div><div id="systemState" class="state">BOOTING…</div></div>
+<div class="players">
+<div class="card player you"><div class="name">YOU • WHITE</div><div class="meta">Training Track</div></div>
+<div class="card player ai"><div class="name">JARVIS • BLACK</div><div id="turnBadge" class="turn">YOUR TURN</div></div>
+</div>
+<div class="boardShell"><div id="board" class="board"><button class="sq light" data-sq="a8" onclick="return jarvisTap('a8',event)" ontouchend="return jarvisTap('a8',event)" aria-label="a8" type="button"><span class="coord rank">8</span><svg class="piece" viewBox="0 0 100 100" aria-hidden="true"><g fill="#15191c" stroke="#ff566f" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M26 18 H37 V29 H44 V18 H56 V29 H63 V18 H74 V37
+                 Q70 42 65 45 H35 Q30 42 26 37 Z"/>
+        <path d="M35 45 H65 V67 Q65 72 69 75 H31 Q35 72 35 67 Z"/>
+        <path d="M27 75 H73 Q78 79 78 83 H22 Q22 79 27 75 Z"/>
+        <path d="M35 52 H65" fill="none" stroke="#8d2b3b" stroke-width="2.4"/></g></svg></button>
+<button class="sq dark" data-sq="b8" onclick="return jarvisTap('b8',event)" ontouchend="return jarvisTap('b8',event)" aria-label="b8" type="button"><svg class="piece" viewBox="0 0 100 100" aria-hidden="true"><g fill="#15191c" stroke="#ff566f" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M25 82 H77 Q75 77 70 72 Q66 68 61 64
+                 Q56 60 54 55 Q52 50 54 44 Q56 39 61 34
+                 Q58 28 53 24 Q47 19 39 20 Q32 21 27 27
+                 Q34 26 40 29 Q35 31 31 35 Q26 40 24 46
+                 Q22 52 24 58 Q26 64 31 69 Q36 74 43 77
+                 H31 Q27 78 25 82 Z"/>
+        <path d="M31 43 Q38 34 49 31 Q45 37 43 42 Q41 48 46 53"
+              fill="none" stroke="#8d2b3b" stroke-width="2.7"/>
+        <path d="M32 28 Q39 23 47 25" fill="none" stroke="#8d2b3b" stroke-width="2.5"/>
+        <path d="M54 39 Q58 42 60 47" fill="none" stroke="#8d2b3b" stroke-width="2.2"/>
+        <circle cx="46" cy="29" r="2.6" fill="#ff566f" stroke="none"/>
+        <path d="M29 72 H68" fill="none" stroke="#8d2b3b" stroke-width="2.4"/></g></svg></button>
+<button class="sq light" data-sq="c8" onclick="return jarvisTap('c8',event)" ontouchend="return jarvisTap('c8',event)" aria-label="c8" type="button"><svg class="piece" viewBox="0 0 100 100" aria-hidden="true"><g fill="#15191c" stroke="#ff566f" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M50 14 Q62 23 64 34 Q66 44 59 51 Q54 56 53 60
+                 Q59 63 63 70 H37 Q41 63 47 60 Q46 56 41 51
+                 Q34 44 36 34 Q38 23 50 14 Z"/>
+        <path d="M56 22 L43 45" fill="none" stroke="#ff566f" stroke-width="3.4"/>
+        <path d="M33 70 H67 Q73 75 74 82 H26 Q27 75 33 70 Z"/>
+        <path d="M39 58 H61" fill="none" stroke="#8d2b3b" stroke-width="2.4"/></g></svg></button>
+<button class="sq dark" data-sq="d8" onclick="return jarvisTap('d8',event)" ontouchend="return jarvisTap('d8',event)" aria-label="d8" type="button"><svg class="piece" viewBox="0 0 100 100" aria-hidden="true"><g fill="#15191c" stroke="#ff566f" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="22" cy="26" r="5"/><circle cx="37" cy="20" r="5"/>
+        <circle cx="50" cy="17" r="5.5"/><circle cx="63" cy="20" r="5"/><circle cx="78" cy="26" r="5"/>
+        <path d="M24 33 L35 50 L40 29 L50 50 L60 29 L65 50 L76 33
+                 L68 64 Q66 69 62 72 H38 Q34 69 32 64 Z"/>
+        <path d="M30 72 H70 Q75 77 76 82 H24 Q25 77 30 72 Z"/>
+        <path d="M34 62 H66" fill="none" stroke="#8d2b3b" stroke-width="2.5"/></g></svg></button>
+<button class="sq light" data-sq="e8" onclick="return jarvisTap('e8',event)" ontouchend="return jarvisTap('e8',event)" aria-label="e8" type="button"><svg class="piece" viewBox="0 0 100 100" aria-hidden="true"><g fill="#15191c" stroke="#ff566f" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M47 11 H53 V20 H62 V27 H53 V36 Q62 38 66 46 Q70 54 66 62
+                 Q63 68 57 71 H65 Q71 75 73 82 H27 Q29 75 35 71 H43
+                 Q37 68 34 62 Q30 54 34 46 Q38 38 47 36 V27 H38 V20 H47 Z"/>
+        <path d="M39 54 Q50 49 61 54" fill="none" stroke="#8d2b3b" stroke-width="2.5"/></g></svg></button>
+<button class="sq dark" data-sq="f8" onclick="return jarvisTap('f8',event)" ontouchend="return jarvisTap('f8',event)" aria-label="f8" type="button"><svg class="piece" viewBox="0 0 100 100" aria-hidden="true"><g fill="#15191c" stroke="#ff566f" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M50 14 Q62 23 64 34 Q66 44 59 51 Q54 56 53 60
+                 Q59 63 63 70 H37 Q41 63 47 60 Q46 56 41 51
+                 Q34 44 36 34 Q38 23 50 14 Z"/>
+        <path d="M56 22 L43 45" fill="none" stroke="#ff566f" stroke-width="3.4"/>
+        <path d="M33 70 H67 Q73 75 74 82 H26 Q27 75 33 70 Z"/>
+        <path d="M39 58 H61" fill="none" stroke="#8d2b3b" stroke-width="2.4"/></g></svg></button>
+<button class="sq light" data-sq="g8" onclick="return jarvisTap('g8',event)" ontouchend="return jarvisTap('g8',event)" aria-label="g8" type="button"><svg class="piece" viewBox="0 0 100 100" aria-hidden="true"><g fill="#15191c" stroke="#ff566f" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M25 82 H77 Q75 77 70 72 Q66 68 61 64
+                 Q56 60 54 55 Q52 50 54 44 Q56 39 61 34
+                 Q58 28 53 24 Q47 19 39 20 Q32 21 27 27
+                 Q34 26 40 29 Q35 31 31 35 Q26 40 24 46
+                 Q22 52 24 58 Q26 64 31 69 Q36 74 43 77
+                 H31 Q27 78 25 82 Z"/>
+        <path d="M31 43 Q38 34 49 31 Q45 37 43 42 Q41 48 46 53"
+              fill="none" stroke="#8d2b3b" stroke-width="2.7"/>
+        <path d="M32 28 Q39 23 47 25" fill="none" stroke="#8d2b3b" stroke-width="2.5"/>
+        <path d="M54 39 Q58 42 60 47" fill="none" stroke="#8d2b3b" stroke-width="2.2"/>
+        <circle cx="46" cy="29" r="2.6" fill="#ff566f" stroke="none"/>
+        <path d="M29 72 H68" fill="none" stroke="#8d2b3b" stroke-width="2.4"/></g></svg></button>
+<button class="sq dark" data-sq="h8" onclick="return jarvisTap('h8',event)" ontouchend="return jarvisTap('h8',event)" aria-label="h8" type="button"><svg class="piece" viewBox="0 0 100 100" aria-hidden="true"><g fill="#15191c" stroke="#ff566f" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M26 18 H37 V29 H44 V18 H56 V29 H63 V18 H74 V37
+                 Q70 42 65 45 H35 Q30 42 26 37 Z"/>
+        <path d="M35 45 H65 V67 Q65 72 69 75 H31 Q35 72 35 67 Z"/>
+        <path d="M27 75 H73 Q78 79 78 83 H22 Q22 79 27 75 Z"/>
+        <path d="M35 52 H65" fill="none" stroke="#8d2b3b" stroke-width="2.4"/></g></svg></button>
+<button class="sq dark" data-sq="a7" onclick="return jarvisTap('a7',event)" ontouchend="return jarvisTap('a7',event)" aria-label="a7" type="button"><span class="coord rank">7</span><svg class="piece" viewBox="0 0 100 100" aria-hidden="true"><g fill="#15191c" stroke="#ff566f" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="50" cy="24" r="14"/>
+        <path d="M39 39 Q50 34 61 39 Q58 48 59 56 Q60 63 66 70 H34 Q40 63 41 56 Q42 48 39 39 Z"/>
+        <path d="M29 71 H71 Q76 75 77 82 H23 Q24 75 29 71 Z"/>
+        <path d="M35 58 H65" fill="none" stroke="#8d2b3b" stroke-width="2.4"/></g></svg></button>
+<button class="sq light" data-sq="b7" onclick="return jarvisTap('b7',event)" ontouchend="return jarvisTap('b7',event)" aria-label="b7" type="button"><svg class="piece" viewBox="0 0 100 100" aria-hidden="true"><g fill="#15191c" stroke="#ff566f" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="50" cy="24" r="14"/>
+        <path d="M39 39 Q50 34 61 39 Q58 48 59 56 Q60 63 66 70 H34 Q40 63 41 56 Q42 48 39 39 Z"/>
+        <path d="M29 71 H71 Q76 75 77 82 H23 Q24 75 29 71 Z"/>
+        <path d="M35 58 H65" fill="none" stroke="#8d2b3b" stroke-width="2.4"/></g></svg></button>
+<button class="sq dark" data-sq="c7" onclick="return jarvisTap('c7',event)" ontouchend="return jarvisTap('c7',event)" aria-label="c7" type="button"><svg class="piece" viewBox="0 0 100 100" aria-hidden="true"><g fill="#15191c" stroke="#ff566f" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="50" cy="24" r="14"/>
+        <path d="M39 39 Q50 34 61 39 Q58 48 59 56 Q60 63 66 70 H34 Q40 63 41 56 Q42 48 39 39 Z"/>
+        <path d="M29 71 H71 Q76 75 77 82 H23 Q24 75 29 71 Z"/>
+        <path d="M35 58 H65" fill="none" stroke="#8d2b3b" stroke-width="2.4"/></g></svg></button>
+<button class="sq light" data-sq="d7" onclick="return jarvisTap('d7',event)" ontouchend="return jarvisTap('d7',event)" aria-label="d7" type="button"><svg class="piece" viewBox="0 0 100 100" aria-hidden="true"><g fill="#15191c" stroke="#ff566f" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="50" cy="24" r="14"/>
+        <path d="M39 39 Q50 34 61 39 Q58 48 59 56 Q60 63 66 70 H34 Q40 63 41 56 Q42 48 39 39 Z"/>
+        <path d="M29 71 H71 Q76 75 77 82 H23 Q24 75 29 71 Z"/>
+        <path d="M35 58 H65" fill="none" stroke="#8d2b3b" stroke-width="2.4"/></g></svg></button>
+<button class="sq dark" data-sq="e7" onclick="return jarvisTap('e7',event)" ontouchend="return jarvisTap('e7',event)" aria-label="e7" type="button"><svg class="piece" viewBox="0 0 100 100" aria-hidden="true"><g fill="#15191c" stroke="#ff566f" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="50" cy="24" r="14"/>
+        <path d="M39 39 Q50 34 61 39 Q58 48 59 56 Q60 63 66 70 H34 Q40 63 41 56 Q42 48 39 39 Z"/>
+        <path d="M29 71 H71 Q76 75 77 82 H23 Q24 75 29 71 Z"/>
+        <path d="M35 58 H65" fill="none" stroke="#8d2b3b" stroke-width="2.4"/></g></svg></button>
+<button class="sq light" data-sq="f7" onclick="return jarvisTap('f7',event)" ontouchend="return jarvisTap('f7',event)" aria-label="f7" type="button"><svg class="piece" viewBox="0 0 100 100" aria-hidden="true"><g fill="#15191c" stroke="#ff566f" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="50" cy="24" r="14"/>
+        <path d="M39 39 Q50 34 61 39 Q58 48 59 56 Q60 63 66 70 H34 Q40 63 41 56 Q42 48 39 39 Z"/>
+        <path d="M29 71 H71 Q76 75 77 82 H23 Q24 75 29 71 Z"/>
+        <path d="M35 58 H65" fill="none" stroke="#8d2b3b" stroke-width="2.4"/></g></svg></button>
+<button class="sq dark" data-sq="g7" onclick="return jarvisTap('g7',event)" ontouchend="return jarvisTap('g7',event)" aria-label="g7" type="button"><svg class="piece" viewBox="0 0 100 100" aria-hidden="true"><g fill="#15191c" stroke="#ff566f" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="50" cy="24" r="14"/>
+        <path d="M39 39 Q50 34 61 39 Q58 48 59 56 Q60 63 66 70 H34 Q40 63 41 56 Q42 48 39 39 Z"/>
+        <path d="M29 71 H71 Q76 75 77 82 H23 Q24 75 29 71 Z"/>
+        <path d="M35 58 H65" fill="none" stroke="#8d2b3b" stroke-width="2.4"/></g></svg></button>
+<button class="sq light" data-sq="h7" onclick="return jarvisTap('h7',event)" ontouchend="return jarvisTap('h7',event)" aria-label="h7" type="button"><svg class="piece" viewBox="0 0 100 100" aria-hidden="true"><g fill="#15191c" stroke="#ff566f" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="50" cy="24" r="14"/>
+        <path d="M39 39 Q50 34 61 39 Q58 48 59 56 Q60 63 66 70 H34 Q40 63 41 56 Q42 48 39 39 Z"/>
+        <path d="M29 71 H71 Q76 75 77 82 H23 Q24 75 29 71 Z"/>
+        <path d="M35 58 H65" fill="none" stroke="#8d2b3b" stroke-width="2.4"/></g></svg></button>
+<button class="sq light" data-sq="a6" onclick="return jarvisTap('a6',event)" ontouchend="return jarvisTap('a6',event)" aria-label="a6" type="button"><span class="coord rank">6</span></button>
+<button class="sq dark" data-sq="b6" onclick="return jarvisTap('b6',event)" ontouchend="return jarvisTap('b6',event)" aria-label="b6" type="button"></button>
+<button class="sq light" data-sq="c6" onclick="return jarvisTap('c6',event)" ontouchend="return jarvisTap('c6',event)" aria-label="c6" type="button"></button>
+<button class="sq dark" data-sq="d6" onclick="return jarvisTap('d6',event)" ontouchend="return jarvisTap('d6',event)" aria-label="d6" type="button"></button>
+<button class="sq light" data-sq="e6" onclick="return jarvisTap('e6',event)" ontouchend="return jarvisTap('e6',event)" aria-label="e6" type="button"></button>
+<button class="sq dark" data-sq="f6" onclick="return jarvisTap('f6',event)" ontouchend="return jarvisTap('f6',event)" aria-label="f6" type="button"></button>
+<button class="sq light" data-sq="g6" onclick="return jarvisTap('g6',event)" ontouchend="return jarvisTap('g6',event)" aria-label="g6" type="button"></button>
+<button class="sq dark" data-sq="h6" onclick="return jarvisTap('h6',event)" ontouchend="return jarvisTap('h6',event)" aria-label="h6" type="button"></button>
+<button class="sq dark" data-sq="a5" onclick="return jarvisTap('a5',event)" ontouchend="return jarvisTap('a5',event)" aria-label="a5" type="button"><span class="coord rank">5</span></button>
+<button class="sq light" data-sq="b5" onclick="return jarvisTap('b5',event)" ontouchend="return jarvisTap('b5',event)" aria-label="b5" type="button"></button>
+<button class="sq dark" data-sq="c5" onclick="return jarvisTap('c5',event)" ontouchend="return jarvisTap('c5',event)" aria-label="c5" type="button"></button>
+<button class="sq light" data-sq="d5" onclick="return jarvisTap('d5',event)" ontouchend="return jarvisTap('d5',event)" aria-label="d5" type="button"></button>
+<button class="sq dark" data-sq="e5" onclick="return jarvisTap('e5',event)" ontouchend="return jarvisTap('e5',event)" aria-label="e5" type="button"></button>
+<button class="sq light" data-sq="f5" onclick="return jarvisTap('f5',event)" ontouchend="return jarvisTap('f5',event)" aria-label="f5" type="button"></button>
+<button class="sq dark" data-sq="g5" onclick="return jarvisTap('g5',event)" ontouchend="return jarvisTap('g5',event)" aria-label="g5" type="button"></button>
+<button class="sq light" data-sq="h5" onclick="return jarvisTap('h5',event)" ontouchend="return jarvisTap('h5',event)" aria-label="h5" type="button"></button>
+<button class="sq light" data-sq="a4" onclick="return jarvisTap('a4',event)" ontouchend="return jarvisTap('a4',event)" aria-label="a4" type="button"><span class="coord rank">4</span></button>
+<button class="sq dark" data-sq="b4" onclick="return jarvisTap('b4',event)" ontouchend="return jarvisTap('b4',event)" aria-label="b4" type="button"></button>
+<button class="sq light" data-sq="c4" onclick="return jarvisTap('c4',event)" ontouchend="return jarvisTap('c4',event)" aria-label="c4" type="button"></button>
+<button class="sq dark" data-sq="d4" onclick="return jarvisTap('d4',event)" ontouchend="return jarvisTap('d4',event)" aria-label="d4" type="button"></button>
+<button class="sq light" data-sq="e4" onclick="return jarvisTap('e4',event)" ontouchend="return jarvisTap('e4',event)" aria-label="e4" type="button"></button>
+<button class="sq dark" data-sq="f4" onclick="return jarvisTap('f4',event)" ontouchend="return jarvisTap('f4',event)" aria-label="f4" type="button"></button>
+<button class="sq light" data-sq="g4" onclick="return jarvisTap('g4',event)" ontouchend="return jarvisTap('g4',event)" aria-label="g4" type="button"></button>
+<button class="sq dark" data-sq="h4" onclick="return jarvisTap('h4',event)" ontouchend="return jarvisTap('h4',event)" aria-label="h4" type="button"></button>
+<button class="sq dark" data-sq="a3" onclick="return jarvisTap('a3',event)" ontouchend="return jarvisTap('a3',event)" aria-label="a3" type="button"><span class="coord rank">3</span></button>
+<button class="sq light" data-sq="b3" onclick="return jarvisTap('b3',event)" ontouchend="return jarvisTap('b3',event)" aria-label="b3" type="button"></button>
+<button class="sq dark" data-sq="c3" onclick="return jarvisTap('c3',event)" ontouchend="return jarvisTap('c3',event)" aria-label="c3" type="button"></button>
+<button class="sq light" data-sq="d3" onclick="return jarvisTap('d3',event)" ontouchend="return jarvisTap('d3',event)" aria-label="d3" type="button"></button>
+<button class="sq dark" data-sq="e3" onclick="return jarvisTap('e3',event)" ontouchend="return jarvisTap('e3',event)" aria-label="e3" type="button"></button>
+<button class="sq light" data-sq="f3" onclick="return jarvisTap('f3',event)" ontouchend="return jarvisTap('f3',event)" aria-label="f3" type="button"></button>
+<button class="sq dark" data-sq="g3" onclick="return jarvisTap('g3',event)" ontouchend="return jarvisTap('g3',event)" aria-label="g3" type="button"></button>
+<button class="sq light" data-sq="h3" onclick="return jarvisTap('h3',event)" ontouchend="return jarvisTap('h3',event)" aria-label="h3" type="button"></button>
+<button class="sq light" data-sq="a2" onclick="return jarvisTap('a2',event)" ontouchend="return jarvisTap('a2',event)" aria-label="a2" type="button"><span class="coord rank">2</span><svg class="piece" viewBox="0 0 100 100" aria-hidden="true"><g fill="#f7fbfd" stroke="#26e1f4" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="50" cy="24" r="14"/>
+        <path d="M39 39 Q50 34 61 39 Q58 48 59 56 Q60 63 66 70 H34 Q40 63 41 56 Q42 48 39 39 Z"/>
+        <path d="M29 71 H71 Q76 75 77 82 H23 Q24 75 29 71 Z"/>
+        <path d="M35 58 H65" fill="none" stroke="#b9f4fb" stroke-width="2.4"/></g></svg></button>
+<button class="sq dark" data-sq="b2" onclick="return jarvisTap('b2',event)" ontouchend="return jarvisTap('b2',event)" aria-label="b2" type="button"><svg class="piece" viewBox="0 0 100 100" aria-hidden="true"><g fill="#f7fbfd" stroke="#26e1f4" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="50" cy="24" r="14"/>
+        <path d="M39 39 Q50 34 61 39 Q58 48 59 56 Q60 63 66 70 H34 Q40 63 41 56 Q42 48 39 39 Z"/>
+        <path d="M29 71 H71 Q76 75 77 82 H23 Q24 75 29 71 Z"/>
+        <path d="M35 58 H65" fill="none" stroke="#b9f4fb" stroke-width="2.4"/></g></svg></button>
+<button class="sq light" data-sq="c2" onclick="return jarvisTap('c2',event)" ontouchend="return jarvisTap('c2',event)" aria-label="c2" type="button"><svg class="piece" viewBox="0 0 100 100" aria-hidden="true"><g fill="#f7fbfd" stroke="#26e1f4" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="50" cy="24" r="14"/>
+        <path d="M39 39 Q50 34 61 39 Q58 48 59 56 Q60 63 66 70 H34 Q40 63 41 56 Q42 48 39 39 Z"/>
+        <path d="M29 71 H71 Q76 75 77 82 H23 Q24 75 29 71 Z"/>
+        <path d="M35 58 H65" fill="none" stroke="#b9f4fb" stroke-width="2.4"/></g></svg></button>
+<button class="sq dark" data-sq="d2" onclick="return jarvisTap('d2',event)" ontouchend="return jarvisTap('d2',event)" aria-label="d2" type="button"><svg class="piece" viewBox="0 0 100 100" aria-hidden="true"><g fill="#f7fbfd" stroke="#26e1f4" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="50" cy="24" r="14"/>
+        <path d="M39 39 Q50 34 61 39 Q58 48 59 56 Q60 63 66 70 H34 Q40 63 41 56 Q42 48 39 39 Z"/>
+        <path d="M29 71 H71 Q76 75 77 82 H23 Q24 75 29 71 Z"/>
+        <path d="M35 58 H65" fill="none" stroke="#b9f4fb" stroke-width="2.4"/></g></svg></button>
+<button class="sq light" data-sq="e2" onclick="return jarvisTap('e2',event)" ontouchend="return jarvisTap('e2',event)" aria-label="e2" type="button"><svg class="piece" viewBox="0 0 100 100" aria-hidden="true"><g fill="#f7fbfd" stroke="#26e1f4" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="50" cy="24" r="14"/>
+        <path d="M39 39 Q50 34 61 39 Q58 48 59 56 Q60 63 66 70 H34 Q40 63 41 56 Q42 48 39 39 Z"/>
+        <path d="M29 71 H71 Q76 75 77 82 H23 Q24 75 29 71 Z"/>
+        <path d="M35 58 H65" fill="none" stroke="#b9f4fb" stroke-width="2.4"/></g></svg></button>
+<button class="sq dark" data-sq="f2" onclick="return jarvisTap('f2',event)" ontouchend="return jarvisTap('f2',event)" aria-label="f2" type="button"><svg class="piece" viewBox="0 0 100 100" aria-hidden="true"><g fill="#f7fbfd" stroke="#26e1f4" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="50" cy="24" r="14"/>
+        <path d="M39 39 Q50 34 61 39 Q58 48 59 56 Q60 63 66 70 H34 Q40 63 41 56 Q42 48 39 39 Z"/>
+        <path d="M29 71 H71 Q76 75 77 82 H23 Q24 75 29 71 Z"/>
+        <path d="M35 58 H65" fill="none" stroke="#b9f4fb" stroke-width="2.4"/></g></svg></button>
+<button class="sq light" data-sq="g2" onclick="return jarvisTap('g2',event)" ontouchend="return jarvisTap('g2',event)" aria-label="g2" type="button"><svg class="piece" viewBox="0 0 100 100" aria-hidden="true"><g fill="#f7fbfd" stroke="#26e1f4" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="50" cy="24" r="14"/>
+        <path d="M39 39 Q50 34 61 39 Q58 48 59 56 Q60 63 66 70 H34 Q40 63 41 56 Q42 48 39 39 Z"/>
+        <path d="M29 71 H71 Q76 75 77 82 H23 Q24 75 29 71 Z"/>
+        <path d="M35 58 H65" fill="none" stroke="#b9f4fb" stroke-width="2.4"/></g></svg></button>
+<button class="sq dark" data-sq="h2" onclick="return jarvisTap('h2',event)" ontouchend="return jarvisTap('h2',event)" aria-label="h2" type="button"><svg class="piece" viewBox="0 0 100 100" aria-hidden="true"><g fill="#f7fbfd" stroke="#26e1f4" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="50" cy="24" r="14"/>
+        <path d="M39 39 Q50 34 61 39 Q58 48 59 56 Q60 63 66 70 H34 Q40 63 41 56 Q42 48 39 39 Z"/>
+        <path d="M29 71 H71 Q76 75 77 82 H23 Q24 75 29 71 Z"/>
+        <path d="M35 58 H65" fill="none" stroke="#b9f4fb" stroke-width="2.4"/></g></svg></button>
+<button class="sq dark" data-sq="a1" onclick="return jarvisTap('a1',event)" ontouchend="return jarvisTap('a1',event)" aria-label="a1" type="button"><span class="coord rank">1</span><span class="coord file">a</span><svg class="piece" viewBox="0 0 100 100" aria-hidden="true"><g fill="#f7fbfd" stroke="#26e1f4" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M26 18 H37 V29 H44 V18 H56 V29 H63 V18 H74 V37
+                 Q70 42 65 45 H35 Q30 42 26 37 Z"/>
+        <path d="M35 45 H65 V67 Q65 72 69 75 H31 Q35 72 35 67 Z"/>
+        <path d="M27 75 H73 Q78 79 78 83 H22 Q22 79 27 75 Z"/>
+        <path d="M35 52 H65" fill="none" stroke="#b9f4fb" stroke-width="2.4"/></g></svg></button>
+<button class="sq light" data-sq="b1" onclick="return jarvisTap('b1',event)" ontouchend="return jarvisTap('b1',event)" aria-label="b1" type="button"><span class="coord file">b</span><svg class="piece" viewBox="0 0 100 100" aria-hidden="true"><g fill="#f7fbfd" stroke="#26e1f4" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M25 82 H77 Q75 77 70 72 Q66 68 61 64
+                 Q56 60 54 55 Q52 50 54 44 Q56 39 61 34
+                 Q58 28 53 24 Q47 19 39 20 Q32 21 27 27
+                 Q34 26 40 29 Q35 31 31 35 Q26 40 24 46
+                 Q22 52 24 58 Q26 64 31 69 Q36 74 43 77
+                 H31 Q27 78 25 82 Z"/>
+        <path d="M31 43 Q38 34 49 31 Q45 37 43 42 Q41 48 46 53"
+              fill="none" stroke="#b9f4fb" stroke-width="2.7"/>
+        <path d="M32 28 Q39 23 47 25" fill="none" stroke="#b9f4fb" stroke-width="2.5"/>
+        <path d="M54 39 Q58 42 60 47" fill="none" stroke="#b9f4fb" stroke-width="2.2"/>
+        <circle cx="46" cy="29" r="2.6" fill="#26e1f4" stroke="none"/>
+        <path d="M29 72 H68" fill="none" stroke="#b9f4fb" stroke-width="2.4"/></g></svg></button>
+<button class="sq dark" data-sq="c1" onclick="return jarvisTap('c1',event)" ontouchend="return jarvisTap('c1',event)" aria-label="c1" type="button"><span class="coord file">c</span><svg class="piece" viewBox="0 0 100 100" aria-hidden="true"><g fill="#f7fbfd" stroke="#26e1f4" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M50 14 Q62 23 64 34 Q66 44 59 51 Q54 56 53 60
+                 Q59 63 63 70 H37 Q41 63 47 60 Q46 56 41 51
+                 Q34 44 36 34 Q38 23 50 14 Z"/>
+        <path d="M56 22 L43 45" fill="none" stroke="#26e1f4" stroke-width="3.4"/>
+        <path d="M33 70 H67 Q73 75 74 82 H26 Q27 75 33 70 Z"/>
+        <path d="M39 58 H61" fill="none" stroke="#b9f4fb" stroke-width="2.4"/></g></svg></button>
+<button class="sq light" data-sq="d1" onclick="return jarvisTap('d1',event)" ontouchend="return jarvisTap('d1',event)" aria-label="d1" type="button"><span class="coord file">d</span><svg class="piece" viewBox="0 0 100 100" aria-hidden="true"><g fill="#f7fbfd" stroke="#26e1f4" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="22" cy="26" r="5"/><circle cx="37" cy="20" r="5"/>
+        <circle cx="50" cy="17" r="5.5"/><circle cx="63" cy="20" r="5"/><circle cx="78" cy="26" r="5"/>
+        <path d="M24 33 L35 50 L40 29 L50 50 L60 29 L65 50 L76 33
+                 L68 64 Q66 69 62 72 H38 Q34 69 32 64 Z"/>
+        <path d="M30 72 H70 Q75 77 76 82 H24 Q25 77 30 72 Z"/>
+        <path d="M34 62 H66" fill="none" stroke="#b9f4fb" stroke-width="2.5"/></g></svg></button>
+<button class="sq dark" data-sq="e1" onclick="return jarvisTap('e1',event)" ontouchend="return jarvisTap('e1',event)" aria-label="e1" type="button"><span class="coord file">e</span><svg class="piece" viewBox="0 0 100 100" aria-hidden="true"><g fill="#f7fbfd" stroke="#26e1f4" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M47 11 H53 V20 H62 V27 H53 V36 Q62 38 66 46 Q70 54 66 62
+                 Q63 68 57 71 H65 Q71 75 73 82 H27 Q29 75 35 71 H43
+                 Q37 68 34 62 Q30 54 34 46 Q38 38 47 36 V27 H38 V20 H47 Z"/>
+        <path d="M39 54 Q50 49 61 54" fill="none" stroke="#b9f4fb" stroke-width="2.5"/></g></svg></button>
+<button class="sq light" data-sq="f1" onclick="return jarvisTap('f1',event)" ontouchend="return jarvisTap('f1',event)" aria-label="f1" type="button"><span class="coord file">f</span><svg class="piece" viewBox="0 0 100 100" aria-hidden="true"><g fill="#f7fbfd" stroke="#26e1f4" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M50 14 Q62 23 64 34 Q66 44 59 51 Q54 56 53 60
+                 Q59 63 63 70 H37 Q41 63 47 60 Q46 56 41 51
+                 Q34 44 36 34 Q38 23 50 14 Z"/>
+        <path d="M56 22 L43 45" fill="none" stroke="#26e1f4" stroke-width="3.4"/>
+        <path d="M33 70 H67 Q73 75 74 82 H26 Q27 75 33 70 Z"/>
+        <path d="M39 58 H61" fill="none" stroke="#b9f4fb" stroke-width="2.4"/></g></svg></button>
+<button class="sq dark" data-sq="g1" onclick="return jarvisTap('g1',event)" ontouchend="return jarvisTap('g1',event)" aria-label="g1" type="button"><span class="coord file">g</span><svg class="piece" viewBox="0 0 100 100" aria-hidden="true"><g fill="#f7fbfd" stroke="#26e1f4" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M25 82 H77 Q75 77 70 72 Q66 68 61 64
+                 Q56 60 54 55 Q52 50 54 44 Q56 39 61 34
+                 Q58 28 53 24 Q47 19 39 20 Q32 21 27 27
+                 Q34 26 40 29 Q35 31 31 35 Q26 40 24 46
+                 Q22 52 24 58 Q26 64 31 69 Q36 74 43 77
+                 H31 Q27 78 25 82 Z"/>
+        <path d="M31 43 Q38 34 49 31 Q45 37 43 42 Q41 48 46 53"
+              fill="none" stroke="#b9f4fb" stroke-width="2.7"/>
+        <path d="M32 28 Q39 23 47 25" fill="none" stroke="#b9f4fb" stroke-width="2.5"/>
+        <path d="M54 39 Q58 42 60 47" fill="none" stroke="#b9f4fb" stroke-width="2.2"/>
+        <circle cx="46" cy="29" r="2.6" fill="#26e1f4" stroke="none"/>
+        <path d="M29 72 H68" fill="none" stroke="#b9f4fb" stroke-width="2.4"/></g></svg></button>
+<button class="sq light" data-sq="h1" onclick="return jarvisTap('h1',event)" ontouchend="return jarvisTap('h1',event)" aria-label="h1" type="button"><span class="coord file">h</span><svg class="piece" viewBox="0 0 100 100" aria-hidden="true"><g fill="#f7fbfd" stroke="#26e1f4" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M26 18 H37 V29 H44 V18 H56 V29 H63 V18 H74 V37
+                 Q70 42 65 45 H35 Q30 42 26 37 Z"/>
+        <path d="M35 45 H65 V67 Q65 72 69 75 H31 Q35 72 35 67 Z"/>
+        <path d="M27 75 H73 Q78 79 78 83 H22 Q22 79 27 75 Z"/>
+        <path d="M35 52 H65" fill="none" stroke="#b9f4fb" stroke-width="2.4"/></g></svg></button></div></div>
+<div class="inputBar"><div id="inputReadout" class="card inputReadout">INPUT READY • tap a white piece</div><button class="testBtn" onclick="inputSelfTest()">RUN INPUT TEST</button></div>
+<div class="card tutor"><div class="panels">
+<div class="panel a"><div class="pt">YOUR MOVE // ANALYSIS</div><span id="analysisText" class="big">Make a move and I’ll break down what it actually accomplishes.</span><span id="analysisCursor" class="cursor" hidden></span><div id="analysisDetail" class="detail">This build prioritizes touch reliability first, then the tutor reacts after each legal move.</div></div>
+<div class="panel b"><div class="pt">JARVIS // RESPONSE</div><span id="replyText" class="big">I’ll answer with a solid, beatable move and explain the idea.</span><span id="replyCursor" class="cursor" hidden></span><div id="replyDetail" class="detail">No external scripts. No CDN. Safari-first touch handling.</div></div>
+</div></div>
+<div class="controls"><button class="btn primary" onclick="inputSelfTest()">✓ Test</button><button class="btn" onclick="undoGame()">↶ Undo</button><button class="btn" onclick="hint()">💡 Hint</button><button class="btn" onclick="flip()">⇅ Flip</button><button class="btn" onclick="resetGame()">⚑ New</button></div>
+<div id="status" class="status">Your move.</div>
+</div>
+<script>
+const game=new MiniChess();
+const $=s=>document.querySelector(s);
+let selected=null, targets=[], busy=false, last=null, touchGate=0, typingA=0, typingB=0;
+const V={p:100,n:320,b:330,r:500,q:900,k:0};
+
+function typeText(el,cursor,text,ch){
+  const token=ch==='a'?++typingA:++typingB;el.textContent='';cursor.hidden=false;let i=0;
+  const step=()=>{if((ch==='a'?typingA:typingB)!==token)return;if(i>=text.length){cursor.hidden=true;return}
+    const n=Math.min(4,text.length-i);el.textContent+=text.slice(i,i+n);i+=n;setTimeout(step,5)};
+  step();
+}
+function buzz(){try{navigator.vibrate&&navigator.vibrate(6)}catch(_){}}
+function sayStatus(t){$('#status').textContent=t}
+function svgFor(p){
+  const c=p[0],t=p[1],white=c==='w',fill=white?'#f7fbfd':'#15191c',stroke=white?'#26e1f4':'#ff566f',inner=white?'#b9f4fb':'#8d2b3b';let b='';
+  if(t==='p')b='<circle cx="50" cy="24" r="14"/><path d="M39 39 Q50 34 61 39 Q58 48 59 56 Q60 63 66 70 H34 Q40 63 41 56 Q42 48 39 39 Z"/><path d="M29 71 H71 Q76 75 77 82 H23 Q24 75 29 71 Z"/><path d="M35 58 H65" fill="none" stroke="'+inner+'" stroke-width="2.4"/>';
+  if(t==='r')b='<path d="M26 18 H37 V29 H44 V18 H56 V29 H63 V18 H74 V37 Q70 42 65 45 H35 Q30 42 26 37 Z"/><path d="M35 45 H65 V67 Q65 72 69 75 H31 Q35 72 35 67 Z"/><path d="M27 75 H73 Q78 79 78 83 H22 Q22 79 27 75 Z"/><path d="M35 52 H65" fill="none" stroke="'+inner+'" stroke-width="2.4"/>';
+  if(t==='n')b='<path d="M25 82 H77 Q75 77 70 72 Q66 68 61 64 Q56 60 54 55 Q52 50 54 44 Q56 39 61 34 Q58 28 53 24 Q47 19 39 20 Q32 21 27 27 Q34 26 40 29 Q35 31 31 35 Q26 40 24 46 Q22 52 24 58 Q26 64 31 69 Q36 74 43 77 H31 Q27 78 25 82 Z"/><path d="M31 43 Q38 34 49 31 Q45 37 43 42 Q41 48 46 53" fill="none" stroke="'+inner+'" stroke-width="2.7"/><path d="M32 28 Q39 23 47 25" fill="none" stroke="'+inner+'" stroke-width="2.5"/><path d="M54 39 Q58 42 60 47" fill="none" stroke="'+inner+'" stroke-width="2.2"/><circle cx="46" cy="29" r="2.6" fill="'+stroke+'" stroke="none"/><path d="M29 72 H68" fill="none" stroke="'+inner+'" stroke-width="2.4"/>';
+  if(t==='b')b='<path d="M50 14 Q62 23 64 34 Q66 44 59 51 Q54 56 53 60 Q59 63 63 70 H37 Q41 63 47 60 Q46 56 41 51 Q34 44 36 34 Q38 23 50 14 Z"/><path d="M56 22 L43 45" fill="none" stroke="'+stroke+'" stroke-width="3.4"/><path d="M33 70 H67 Q73 75 74 82 H26 Q27 75 33 70 Z"/><path d="M39 58 H61" fill="none" stroke="'+inner+'" stroke-width="2.4"/>';
+  if(t==='q')b='<circle cx="22" cy="26" r="5"/><circle cx="37" cy="20" r="5"/><circle cx="50" cy="17" r="5.5"/><circle cx="63" cy="20" r="5"/><circle cx="78" cy="26" r="5"/><path d="M24 33 L35 50 L40 29 L50 50 L60 29 L65 50 L76 33 L68 64 Q66 69 62 72 H38 Q34 69 32 64 Z"/><path d="M30 72 H70 Q75 77 76 82 H24 Q25 77 30 72 Z"/><path d="M34 62 H66" fill="none" stroke="'+inner+'" stroke-width="2.5"/>';
+  if(t==='k')b='<path d="M47 11 H53 V20 H62 V27 H53 V36 Q62 38 66 46 Q70 54 66 62 Q63 68 57 71 H65 Q71 75 73 82 H27 Q29 75 35 71 H43 Q37 68 34 62 Q30 54 34 46 Q38 38 47 36 V27 H38 V20 H47 Z"/><path d="M39 54 Q50 49 61 54" fill="none" stroke="'+inner+'" stroke-width="2.5"/>';
+  return '<svg class="piece" viewBox="0 0 100 100"><g fill="'+fill+'" stroke="'+stroke+'" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">'+b+'</g></svg>';
+}
+function render(){
+  for(const el of document.querySelectorAll('.sq')){
+    const s=el.dataset.sq;
+    el.classList.toggle('selected',s===selected);
+    el.classList.toggle('last',!!last&&(s===last.from||s===last.to));
+    el.querySelectorAll('.piece,.dot,.ring').forEach(n=>n.remove());
+    const p=game.p(s);if(p)el.insertAdjacentHTML('beforeend',svgFor(p));
+    if(targets.includes(s)){const m=document.createElement('span');m.className=game.p(s)?'ring':'dot';el.appendChild(m)}
+  }
+  $('#turnBadge').textContent=busy?'JARVIS THINKING':game.turn==='w'?'YOUR TURN':'JARVIS TURN';
+}
+function jarvisTap(s,e){
+  try{
+    const now=Date.now();
+    if(e&&e.type==='click'&&now-touchGate<450)return false;
+    if(e&&e.type==='touchend')touchGate=now;
+    if(e&&e.preventDefault)e.preventDefault();
+    $('#inputReadout').textContent='INPUT: '+s+' ✓';
+    $('#inputReadout').classList.add('ok');
+    if(busy||game.turn!=='w'||game.gameOver())return false;
+    const p=game.p(s);
+    if(!selected){
+      if(p&&p[0]==='w'){selected=s;targets=game.legal(s);sayStatus('Selected '+s+' • choose a highlighted square');buzz();render()}
+      return false;
+    }
+    if(s===selected){selected=null;targets=[];sayStatus('Selection cleared');render();return false}
+    if(p&&p[0]==='w'){selected=s;targets=game.legal(s);sayStatus('Selected '+s);render();return false}
+    if(!targets.includes(s)){sayStatus('Illegal destination • choose a highlighted square');return false}
+    const from=selected,m=game.move(from,s);last=m;selected=null;targets=[];
+    typeText($('#analysisText'),$('#analysisCursor'),'Your move: '+from+' → '+s+'. Good — input and rules are both responding. Now I’m reading the position.','a');
+    $('#analysisDetail').textContent='Legal move accepted. I’m checking center control, development, tactical safety, and what Black can force next.';
+    render();sayStatus('Move accepted • JARVIS thinking…');
+    if(game.gameOver()){finish();return false}
+    busy=true;render();
+    setTimeout(()=>{jarvisReply()},260);
+  }catch(err){
+    $('#inputReadout').textContent='INPUT ERROR: '+(err&&err.message?err.message:'unknown');
+    $('#inputReadout').classList.add('bad');console.error(err)
+  }
+  return false;
+}
+window.jarvisTap=jarvisTap;
+
+function evalBoard(g){
+  let s=0;for(const k in g.board){const p=g.board[k];s+=(p[0]==='b'?1:-1)*V[p[1]];
+    if(['d4','e4','d5','e5'].includes(k))s+=(p[0]==='b'?1:-1)*18}
+  return s;
+}
+function chooseBlack(){
+  const ms=game.all('b');if(!ms.length)return null;
+  const scored=ms.map(([f,t])=>{const c=game.clone();c.turn='b';const m=c.move(f,t);return{f,t,s:evalBoard(c)+(m&&m.captured?V[m.captured]*.18:0)}}).sort((a,b)=>b.s-a.s);
+  const best=scored[0].s,near=scored.filter(x=>x.s>=best-70).slice(0,5),r=Math.random();
+  return r<.62?near[0]:r<.86?near[Math.min(1,near.length-1)]:near[Math.floor(Math.random()*near.length)]
+}
+function jarvisReply(){
+  try{
+    const pick=chooseBlack();if(!pick){busy=false;finish();return}
+    game.turn='b';const m=game.move(pick.f,pick.t);last=m;busy=false;
+    typeText($('#replyText'),$('#replyCursor'),'I played '+pick.f+' → '+pick.t+'. I’m choosing solid, human-looking moves instead of random ones.','b');
+    $('#replyDetail').textContent=game.inCheck('w')?'You are in check. Find every legal response before thinking about anything else.':'Your turn. First ask: what did my move attack, defend, or change?';
+    render();sayStatus(game.inCheck('w')?'You are in check.':'Your move.');
+    if(game.gameOver())finish();
+  }catch(err){busy=false;$('#inputReadout').textContent='AI ERROR: '+err.message;$('#inputReadout').classList.add('bad');render()}
+}
+function finish(){
+  busy=false;render();
+  if(game.mate())sayStatus(game.turn==='w'?'Checkmate • JARVIS wins':'Checkmate • YOU win');
+  else sayStatus('Draw / no legal moves');
+}
+function inputSelfTest(){
+  $('#inputReadout').textContent='SELF TEST RUNNING…';$('#inputReadout').className='inputReadout';
+  const e2=document.querySelector('[data-sq="e2"]'),e4=document.querySelector('[data-sq="e4"]');
+  if(!e2||!e4){$('#inputReadout').textContent='SELF TEST FAIL • board missing';$('#inputReadout').classList.add('bad');return}
+  selected='e2';targets=game.legal('e2');render();
+  const ok=targets.includes('e4');
+  $('#inputReadout').textContent=ok?'SELF TEST PASS • e2 → e4 is selectable':'SELF TEST FAIL • move engine';
+  $('#inputReadout').classList.add(ok?'ok':'bad');
+  setTimeout(()=>{selected=null;targets=[];render()},900);
+}
+function resetGame(){game.reset();selected=null;targets=[];last=null;busy=false;render();sayStatus('Your move.');$('#inputReadout').textContent='INPUT READY • tap a white piece';$('#inputReadout').className='inputReadout'}
+function undoGame(){if(busy)return;game.undo();if(game.turn==='b')game.undo();selected=null;targets=[];last=null;render();sayStatus('Rewound • your move')}
+function hint(){if(game.turn!=='w'||busy)return;const ms=game.all('w');if(!ms.length)return;const m=ms[Math.floor(Math.random()*ms.length)];typeText($('#analysisText'),$('#analysisCursor'),'Hint: compare '+m[0]+' → '+m[1]+' against your current idea. Ask what it develops, controls, or protects.','a')}
+function flip(){document.querySelector('#board').classList.toggle('flipped')}
+window.addEventListener('load',()=>{render();sayStatus('Your move.');$('#systemState').textContent='SAFARI MODE • READY'});
+</script>
+</body></html>
